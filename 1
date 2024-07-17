@@ -1,0 +1,65 @@
+import requests
+from bs4 import BeautifulSoup
+import pandas as pd
+import urllib3
+urllib3.disable_warnings()
+
+
+def get_bond_data(url: str, bond_type: str, issue_year: int):
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    # 创建一个会话对象并设置重试策略
+    session = requests.Session()
+    retry = urllib3.util.Retry(
+        total=5,
+        backoff_factor=0.1,
+        status_forcelist=[500, 502, 503, 504]
+    )
+    adapter = requests.adapters.HTTPAdapter(max_retries=retry)
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+
+    # 发送HTTP请求获取网页内容，忽略SSL证书验证
+    response = session.get(url, verify=False)
+    response.raise_for_status()
+    page_content = response.content
+
+    # 使用BeautifulSoup解析HTML
+    soup = BeautifulSoup(page_content, 'html.parser')
+
+    # 找到表格数据
+    table = soup.find('table')
+
+    if table:
+        # 获取表头
+        headers = [header.text.strip() for header in table.find_all('th')]
+
+        # 获取表格行数据
+        rows = []
+        for row in table.find_all('tr')[1:]:  # 跳过表头
+            columns = row.find_all('td')
+            row_data = [col.text.strip() for col in columns]
+            rows.append(row_data)
+
+        # 创建DataFrame
+        df = pd.DataFrame(rows, columns=headers)
+
+        # 过滤数据
+        filtered_df = df[(df['Bond Type'] == bond_type) & (df['Issue Year'].astype(str) == str(issue_year))]
+
+        # 选择所需列
+        result_df = filtered_df[['ISIN', 'Bond Code', 'Issuer', 'Bond Type', 'Issue Date', 'Latest Rating']]
+
+        # 保存为CSV文件
+        result_df.to_csv('bond_data.csv', index=False, encoding='utf-8')
+        print("数据已成功保存到bond_data.csv")
+    else:
+        print("未找到表格数据")
+
+
+# 使用函数获取并保存数据
+url = 'https://iftp.chinamoney.com.cn/english/bdInfo/'
+bond_type = 'Treasury Bond'
+issue_year = 2023
+
+get_bond_data(url, bond_type, issue_year)
